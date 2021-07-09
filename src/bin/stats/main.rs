@@ -1,39 +1,48 @@
 mod args;
+mod stats;
 
-use std::{fs::File, io::BufReader};
-
-use thermal::exif::ThermalExif;
 use anyhow::{Result, bail};
 
 use args::Args;
+use stats::ImageStats;
 
 fn main() -> Result<()> {
     let args = Args::from_cmd_line()?;
 
-    let exif: ThermalExif = {
-        let exif_file = File::open(&args.exif_path)?;
-        let reader = BufReader::new(exif_file);
+    use rayon::prelude::*;
+    use thermal::stats::PixelStats;
+    let (stats, cumulative) = args.exif_paths
+        .into_par_iter()
+        .map(|p| ImageStats::from_exif_path(&p))
+        .try_fold(
+            || (vec![], PixelStats::default()),
+            |mut acc, item| -> Result<_> {
+                acc.0.push(item?);
+                acc.1 += &acc.0.last().unwrap().stats;
+                Ok(acc)
+            }
+        )
+        .try_reduce(
+            || (vec![], PixelStats::default()),
+            |mut acc1, acc2| -> Result<_> {
+                acc1.0.extend(acc2.0);
+                acc1.1 += &acc2.1;
+                Ok(acc1)
+            }
+        )?;
 
-        let mut values: Vec<_> = serde_json::from_reader(reader)?;
-        if values.len() != 1 {
-            bail!("expected exif json array with one item");
-        }
-        values.pop().unwrap()
-    };
-    eprintln!("{:?}", exif.settings);
 
-    let image = exif.raw.thermal_image()?;
-    let (ht, wid) = image.dim();
-    eprintln!("image: {}x{}", wid, ht);
-
-    println!("x,y,temp");
-    for row in 0..ht {
-        for col in 0..wid {
-            let raw = image[(row, col)];
-            let temp = exif.settings.raw_to_temp(1.0, raw);
-            println!("{},{},{}", row, col, temp);
-        }
+    use serde_derive::*;
+    #[derive(Debug, Serialize)]
+    struct OutputJson {
+        image_stats: Vec<ImageStats>,
+        cumulative: PixelStats,
     }
+
+    serde_json::to_writer(
+        std::io::stdout().lock(),
+        &OutputJson { image_stats: stats, cumulative, },
+    )?;
 
     Ok(())
 }

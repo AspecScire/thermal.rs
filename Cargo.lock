@@ -539,6 +539,7 @@ dependencies = [
  "image",
  "lazy_static",
  "ndarray",
+ "rayon",
  "regex",
  "serde",
  "serde_derive",

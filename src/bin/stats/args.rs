@@ -3,32 +3,25 @@ use anyhow::Result;
 use thermal::{arg, args_parser};
 
 pub struct Args {
-    pub image_path: PathBuf,
-    pub exif_path: PathBuf,
+    pub exif_paths: Vec<PathBuf>,
 }
 
 impl Args {
     pub fn from_cmd_line() -> Result<Args> {
-        use clap::*;
         let matches = args_parser!("thermal-stats")
             .about("Compute temperature stats from image.")
             .arg(
-                arg!("image")
+                arg!("exifs")
                     .required(true)
-                    .help("Image path (R-JPEG image)"),
-            )
-            .arg(
-                arg!("exif")
-                    .required(true)
+                    .multiple(true)
                     .help("Exif json path")
             )
             .get_matches();
 
-        let image_path = value_t!(matches, "image", PathBuf)?;
-        let exif_path = value_t!(matches, "exif", PathBuf)?;
+        let exif_paths = matches.values_of("exifs").unwrap().map(|f| f.into()).collect();
 
         Ok(Args {
-            image_path, exif_path,
+            exif_paths,
         })
     }
 }
