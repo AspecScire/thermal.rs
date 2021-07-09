@@ -85,7 +85,7 @@ impl ThermalSettings {
         self.atmospheric_transmission_x * val1 + (1. - self.atmospheric_transmission_x) * val2
     }
 
-    pub fn raw_to_temp(&self, distance: f64, raw: f64) -> f64 {
+    pub fn raw_transform(&self, distance: f64) -> impl Fn(f64) -> f64 {
         // This is step to step port of the R code
 
         //   emiss.wind<-1-IRT
@@ -146,22 +146,32 @@ impl ThermalSettings {
         let atm2_attn = (1. - tau) / self.emissivity / tau
             / self.ir_window_transmission / tau * atm2;
 
-        // raw.obj<-(raw/E/tau1/IRT/tau2
-        //  -raw.atm1.attn-raw.atm2.attn
-        //  -raw.wind.attn
-        //  -raw.refl1.attn-raw.refl2.attn)
-        let raw_obj = raw / self.emissivity / tau
-            / self.ir_window_transmission / tau
-
+        let coeffs = [
             - atm1_attn - atm2_attn
-            - wind_attn
-            - refl1_attn - refl2_attn;
+                - wind_attn
+                - refl1_attn - refl2_attn,
+            1. / self.emissivity / tau
+                / self.ir_window_transmission / tau,
+        ];
 
-        //   temp.C<-PB/log(PR1/(PR2*(raw.obj+PO))+PF)-273.15
-        self.planck_raw_to_temp(raw_obj)
+        move |raw| power_series_at(&coeffs, raw)
+
+    }
+
+    pub fn temperature_transform(&self, distance: f64) -> impl Fn(f64) -> f64 + '_ {
+        let t = self.raw_transform(distance);
+        move |raw| {
+            let raw = t(raw);
+            self.planck_raw_to_temp(raw)
+        }
+    }
+
+    pub fn raw_to_temp(&self, distance: f64, raw: f64) -> f64 {
+        self.temperature_transform(distance)(raw)
     }
 }
 
+#[inline]
 fn power_series_at(coeffs: &[f64], x: f64) -> f64 {
     let mut pow = 1.;
     let mut sum = 0.;

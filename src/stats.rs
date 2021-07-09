@@ -11,7 +11,7 @@ use std::ops::AddAssign;
 /// - a `(f64, f64)` tuple.  Adds the first component with weight specified by the second component.
 /// - another `PixelStats` value.  Accumulates the statistic from the other into `self`.
 #[derive(Debug, Serialize, Clone)]
-pub struct PixelStats {
+pub struct Stats {
     max: f64,
     min: f64,
     sum: f64,
@@ -19,10 +19,10 @@ pub struct PixelStats {
     count: f64,
 }
 
-impl Default for PixelStats {
+impl Default for Stats {
     fn default() -> Self {
         use std::f64::*;
-        PixelStats {
+        Stats {
             max: NEG_INFINITY,
             min: INFINITY,
             sum: 0.,
@@ -31,7 +31,7 @@ impl Default for PixelStats {
         }
     }
 }
-impl AddAssign<(f64, f64)> for PixelStats {
+impl AddAssign<(f64, f64)> for Stats {
     fn add_assign(&mut self, other: (f64, f64)) {
         self.max = self.max.max(other.0);
         self.min = self.min.min(other.0);
@@ -41,13 +41,13 @@ impl AddAssign<(f64, f64)> for PixelStats {
     }
 }
 
-impl AddAssign<f64> for PixelStats {
+impl AddAssign<f64> for Stats {
     fn add_assign(&mut self, other: f64) {
         *self += (other, 1.);
     }
 }
-impl AddAssign<&PixelStats> for PixelStats {
-    fn add_assign(&mut self, other: &PixelStats) {
+impl AddAssign<&Stats> for Stats {
+    fn add_assign(&mut self, other: &Stats) {
         self.max = self.max.max(other.max);
         self.min = self.min.min(other.min);
         self.sum += other.sum;
@@ -56,7 +56,7 @@ impl AddAssign<&PixelStats> for PixelStats {
     }
 }
 
-impl PixelStats {
+impl Stats {
     #[inline]
     pub fn max(&self) -> f64 {
         self.max
@@ -89,7 +89,7 @@ impl PixelStats {
 
     #[inline]
     pub fn variance(&self) -> f64 {
-        self.sum_2 / self.count
+        self.sum_2 / self.count - self.mean().powi(2)
     }
 
     #[inline]
