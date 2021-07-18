@@ -13,7 +13,7 @@ fn main() -> Result<()> {
     use rayon::prelude::*;
     use thermal::stats::Stats;
 
-    let bar = ProgressBar::new(args.exif_paths.len() as u64);
+    let bar = ProgressBar::new(args.paths.len() as u64);
     bar.set_style(
         ProgressStyle::default_bar()
             .template("[{elapsed_precise}] {wide_bar:cyan/blue} {pos:>7}/{len:7}")
@@ -21,10 +21,10 @@ fn main() -> Result<()> {
 
     let distance = args.distance;
     let (stats, cumulative) = args
-        .exif_paths
+        .paths
         .into_par_iter()
         .progress_with(bar)
-        .map(|p| ImageStats::from_exif_path(&p, distance))
+        .map(|p| ImageStats::from_image_path(&p, distance))
         .try_fold(
             || (vec![], Stats::default()),
             |mut acc, item| -> Result<_> {

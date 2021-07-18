@@ -12,6 +12,8 @@
 /// This is typically read from the exif data of the image.
 use serde_derive::*;
 
+use crate::flir::FlirCameraParams;
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub struct ThermalSettings {
@@ -171,6 +173,30 @@ impl ThermalSettings {
     }
 }
 
+impl From<FlirCameraParams> for ThermalSettings {
+    fn from(params: FlirCameraParams) -> Self {
+        let FlirCameraParams { temperature_params, extra_params, .. } = params;
+        ThermalSettings {
+            relative_humidity_percentage: temperature_params.relative_humidity as f64 * 100.,
+            emissivity: temperature_params.emissivity as f64,
+            reflected_apparent_temperature: temperature_params.reflected_apparent_temperature as f64 - CELICIUS_OFFSET,
+            ir_window_temperature: temperature_params.ir_window_temperature as f64 - CELICIUS_OFFSET,
+            ir_window_transmission: temperature_params.ir_window_transmission as f64,
+            planck_r1: temperature_params.planck_r1 as f64,
+            planck_b: temperature_params.planck_b as f64,
+            planck_f: temperature_params.planck_f as f64,
+            planck_o: extra_params.planck_o as f64,
+            planck_r2: extra_params.planck_r2 as f64,
+            atmospheric_temperature: temperature_params.atmospheric_temperature as f64 - CELICIUS_OFFSET,
+            atmospheric_transmission_alpha_1: temperature_params.atmospheric_transmission_alpha_1 as f64,
+            atmospheric_transmission_alpha_2: temperature_params.atmospheric_transmission_alpha_2 as f64,
+            atmospheric_transmission_beta_1: temperature_params.atmospheric_transmission_beta_1 as f64,
+            atmospheric_transmission_beta_2: temperature_params.atmospheric_transmission_beta_2 as f64,
+            atmospheric_transmission_x: temperature_params.atmospheric_transmission_x as f64,
+        }
+    }
+}
+
 #[inline]
 fn power_series_at(coeffs: &[f64], x: f64) -> f64 {
     let mut pow = 1.;
@@ -186,13 +212,14 @@ mod serde_helpers {
     use lazy_static::lazy_static;
     use regex::Regex;
     use serde::*;
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r"^\d*.\d*").unwrap();
+    }
+
     pub fn float_with_suffix<'de, D>(de: D) -> Result<f64, D::Error>
     where
         D: Deserializer<'de>,
     {
-        lazy_static! {
-            static ref RE: Regex = Regex::new(r"^\d*.\d*").unwrap();
-        }
 
         use serde::de::Error;
         let str_rep = <String as Deserialize>::deserialize(de)?;

@@ -1,7 +1,8 @@
-use std::{fs::File, io::BufReader, path::Path};
+use std::{fs::read, path::Path};
 
-use thermal::{exif::ThermalExif, stats::Stats};
-use anyhow::{Result, bail};
+use img_parts::jpeg::Jpeg;
+use thermal::{flir::FlirSegment, stats::Stats, temperature::ThermalSettings};
+use anyhow::{Result, anyhow};
 use serde_derive::*;
 
 
@@ -14,27 +15,24 @@ pub struct ImageStats {
 }
 
 impl ImageStats {
-    pub fn from_exif_path(path: &Path, distance: f64) -> Result<Self> {
-        let exif: ThermalExif = {
-            let exif_file = File::open(path)?;
-            let reader = BufReader::new(exif_file);
-
-            let mut values: Vec<_> = serde_json::from_reader(reader)?;
-            if values.len() != 1 {
-                bail!("expected exif json array with one item");
-            }
-            values.pop().unwrap()
+    pub fn from_image_path(path: &Path, distance: f64) -> Result<Self> {
+        let flir_segment = {
+            let image = Jpeg::from_bytes(read(path)?.into())?;
+            FlirSegment::try_from_jpeg(&image)?
         };
-
-        let image = exif.raw.thermal_image()?;
+        let image = flir_segment.try_parse_raw_data()?
+            .ok_or_else(|| anyhow!("no raw data found"))?;
         let (ht, wid) = image.dim();
 
-        let mut stats = Stats::default();
-        let temp_t = exif.settings.temperature_transform(distance);
+        let thermal_settings: ThermalSettings = flir_segment.try_parse_camera_params()?
+            .ok_or_else(|| anyhow!("no camera params found"))?
+            .into();
+        let temp_t = thermal_settings.temperature_transform(distance);
 
+        let mut stats = Stats::default();
         for row in 0..ht {
             for col in 0..wid {
-                let raw = image[(row, col)];
+                let raw = image[(row, col)] as f64;
                 let temp = temp_t(raw);
                 stats += temp;
             }

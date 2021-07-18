@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use thermal::{arg, args_parser, opt};
 
 pub struct Args {
-    pub exif_paths: Vec<PathBuf>,
+    pub paths: Vec<PathBuf>,
     pub distance: f64,
 }
 
@@ -13,10 +13,10 @@ impl Args {
         let matches = args_parser!("thermal-stats")
             .about("Compute temperature stats from image.")
             .arg(
-                arg!("exifs")
+                arg!("images")
                     .required(true)
                     .multiple(true)
-                    .help("Exif json paths"),
+                    .help("Image paths"),
             )
             .arg(
                 opt!("distance")
@@ -25,8 +25,8 @@ impl Args {
             )
             .get_matches();
 
-        let exif_paths = matches
-            .values_of("exifs")
+        let paths = matches
+            .values_of("images")
             .unwrap()
             .map(|f| f.into())
             .collect();
@@ -36,7 +36,7 @@ impl Args {
             .unwrap_or(1.0);
 
         Ok(Args {
-            exif_paths,
+            paths,
             distance,
         })
     }
