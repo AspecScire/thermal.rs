@@ -4,7 +4,7 @@ mod stats;
 use anyhow::Result;
 
 use args::Args;
-use indicatif::{ProgressBar, ProgressStyle, ParallelProgressIterator};
+use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use stats::ImageStats;
 
 fn main() -> Result<()> {
@@ -16,7 +16,7 @@ fn main() -> Result<()> {
     let bar = ProgressBar::new(args.paths.len() as u64);
     bar.set_style(
         ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {wide_bar:cyan/blue} {pos:>7}/{len:7}")
+            .template("[{elapsed_precise}] {wide_bar:cyan/blue} {pos:>7}/{len:7}"),
     );
 
     let distance = args.distance;

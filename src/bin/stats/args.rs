@@ -35,9 +35,6 @@ impl Args {
             .then(|| value_t_or_exit!(matches.value_of("distance"), f64))
             .unwrap_or(1.0);
 
-        Ok(Args {
-            paths,
-            distance,
-        })
+        Ok(Args { paths, distance })
     }
 }

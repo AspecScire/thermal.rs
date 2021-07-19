@@ -74,13 +74,11 @@ impl ThermalSettings {
     // tau1<-ATX*exp(-sqrt(OD/2)*(ATA1+ATB1*sqrt(h2o)))
     //  +(1-ATX)*exp(-sqrt(OD/2)*(ATA2+ATB2*sqrt(h2o)))
     fn atmospheric_affine1(&self, val: f64) -> f64 {
-        self.atmospheric_transmission_alpha_1 +
-            self.atmospheric_transmission_beta_1 * val
+        self.atmospheric_transmission_alpha_1 + self.atmospheric_transmission_beta_1 * val
     }
 
     fn atmospheric_affine2(&self, val: f64) -> f64 {
-        self.atmospheric_transmission_alpha_2 +
-            self.atmospheric_transmission_beta_2 * val
+        self.atmospheric_transmission_alpha_2 + self.atmospheric_transmission_beta_2 * val
     }
 
     fn atmospheric_interpolate(&self, val1: f64, val2: f64) -> f64 {
@@ -96,15 +94,12 @@ impl ThermalSettings {
         //   refl.wind<-0 # anti-reflective coating on window
         let refl_wind = 0.;
 
-
         // ############ transmission through the air
         //   h2o<-(RH/100)*exp(1.5587+0.06939*(ATemp)-0.00027816*(ATemp)^2+0.00000068455*(ATemp)^3)
         //   # converts relative humidity into water vapour pressure (I think in units mmHg)
         const ATMOSPHERIC_SERIES: [f64; 4] = [1.5587, 0.06939, -0.00027816, 0.00000068455];
-        let h2o = (self.relative_humidity_percentage / 100.) *
-            power_series_at(
-                &ATMOSPHERIC_SERIES, self.atmospheric_temperature
-            ).exp();
+        let h2o = (self.relative_humidity_percentage / 100.)
+            * power_series_at(&ATMOSPHERIC_SERIES, self.atmospheric_temperature).exp();
 
         let h2o_sqrt = h2o.sqrt();
 
@@ -133,31 +128,25 @@ impl ThermalSettings {
         //   raw.wind<-PR1/(PR2*(exp(PB/(IRWTemp+273.15))-PF))-PO
         //   raw.wind.attn<-emiss.wind/E/tau1/IRT*raw.wind
         let wind = self.planck_temp_to_raw(self.ir_window_temperature);
-        let wind_attn = emiss_wind / self.emissivity / tau
-            / self.ir_window_transmission * wind;
+        let wind_attn = emiss_wind / self.emissivity / tau / self.ir_window_transmission * wind;
 
         //   raw.refl2<-PR1/(PR2*(exp(PB/(RTemp+273.15))-PF))-PO
         //   raw.refl2.attn<-refl.wind/E/tau1/IRT*raw.refl2
         let refl2 = self.planck_temp_to_raw(self.reflected_apparent_temperature);
-        let refl2_attn = refl_wind / self.emissivity / tau
-            / self.ir_window_transmission * refl2;
+        let refl2_attn = refl_wind / self.emissivity / tau / self.ir_window_transmission * refl2;
 
         //   raw.atm2<-PR1/(PR2*(exp(PB/(ATemp+273.15))-PF))-PO
         //   raw.atm2.attn<-(1-tau2)/E/tau1/IRT/tau2*raw.atm2
         let atm2 = self.planck_temp_to_raw(self.atmospheric_temperature);
-        let atm2_attn = (1. - tau) / self.emissivity / tau
-            / self.ir_window_transmission / tau * atm2;
+        let atm2_attn =
+            (1. - tau) / self.emissivity / tau / self.ir_window_transmission / tau * atm2;
 
         let coeffs = [
-            - atm1_attn - atm2_attn
-                - wind_attn
-                - refl1_attn - refl2_attn,
-            1. / self.emissivity / tau
-                / self.ir_window_transmission / tau,
+            -atm1_attn - atm2_attn - wind_attn - refl1_attn - refl2_attn,
+            1. / self.emissivity / tau / self.ir_window_transmission / tau,
         ];
 
         move |raw| power_series_at(&coeffs, raw)
-
     }
 
     pub fn temperature_transform(&self, distance: f64) -> impl Fn(f64) -> f64 + '_ {
@@ -175,23 +164,35 @@ impl ThermalSettings {
 
 impl From<FlirCameraParams> for ThermalSettings {
     fn from(params: FlirCameraParams) -> Self {
-        let FlirCameraParams { temperature_params, extra_params, .. } = params;
+        let FlirCameraParams {
+            temperature_params,
+            extra_params,
+            ..
+        } = params;
         ThermalSettings {
             relative_humidity_percentage: temperature_params.relative_humidity as f64 * 100.,
             emissivity: temperature_params.emissivity as f64,
-            reflected_apparent_temperature: temperature_params.reflected_apparent_temperature as f64 - CELICIUS_OFFSET,
-            ir_window_temperature: temperature_params.ir_window_temperature as f64 - CELICIUS_OFFSET,
+            reflected_apparent_temperature: temperature_params.reflected_apparent_temperature
+                as f64
+                - CELICIUS_OFFSET,
+            ir_window_temperature: temperature_params.ir_window_temperature as f64
+                - CELICIUS_OFFSET,
             ir_window_transmission: temperature_params.ir_window_transmission as f64,
             planck_r1: temperature_params.planck_r1 as f64,
             planck_b: temperature_params.planck_b as f64,
             planck_f: temperature_params.planck_f as f64,
             planck_o: extra_params.planck_o as f64,
             planck_r2: extra_params.planck_r2 as f64,
-            atmospheric_temperature: temperature_params.atmospheric_temperature as f64 - CELICIUS_OFFSET,
-            atmospheric_transmission_alpha_1: temperature_params.atmospheric_transmission_alpha_1 as f64,
-            atmospheric_transmission_alpha_2: temperature_params.atmospheric_transmission_alpha_2 as f64,
-            atmospheric_transmission_beta_1: temperature_params.atmospheric_transmission_beta_1 as f64,
-            atmospheric_transmission_beta_2: temperature_params.atmospheric_transmission_beta_2 as f64,
+            atmospheric_temperature: temperature_params.atmospheric_temperature as f64
+                - CELICIUS_OFFSET,
+            atmospheric_transmission_alpha_1: temperature_params.atmospheric_transmission_alpha_1
+                as f64,
+            atmospheric_transmission_alpha_2: temperature_params.atmospheric_transmission_alpha_2
+                as f64,
+            atmospheric_transmission_beta_1: temperature_params.atmospheric_transmission_beta_1
+                as f64,
+            atmospheric_transmission_beta_2: temperature_params.atmospheric_transmission_beta_2
+                as f64,
             atmospheric_transmission_x: temperature_params.atmospheric_transmission_x as f64,
         }
     }
@@ -220,7 +221,6 @@ mod serde_helpers {
     where
         D: Deserializer<'de>,
     {
-
         use serde::de::Error;
         let str_rep = <String as Deserialize>::deserialize(de)?;
         let val = RE

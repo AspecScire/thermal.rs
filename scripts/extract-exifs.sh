@@ -1,5 +1,8 @@
 #!/bin/bash
 
+#### WARNING: DEPRECATED
+#### Use the stats binary directly with the rjpegs
+
 for file in "$@"; do
     fname="${file##*/}"
     fstem="${fname%.*}"
