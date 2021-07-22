@@ -22,14 +22,22 @@ fn main() -> Result<()> {
     let distance = args.distance;
     let (stats, cumulative) = args
         .paths
-        .into_par_iter()
+        .par_iter()
         .progress_with(bar)
-        .map(|p| ImageStats::from_image_path(&p, distance))
+        .map(|p| -> Result<_> {
+            if args.is_json {
+                ImageStats::from_exiftool_json_path(p, distance)
+            } else {
+                Ok(vec![ImageStats::from_image_path(p, distance)?])
+            }
+        })
         .try_fold(
             || (vec![], Stats::default()),
-            |mut acc, item| -> Result<_> {
-                acc.0.push(item?);
-                acc.1 += &acc.0.last().unwrap().stats;
+            |mut acc, items| -> Result<_> {
+                for item in items? {
+                    acc.0.push(item);
+                    acc.1 += &acc.0.last().unwrap().stats;
+                }
                 Ok(acc)
             },
         )

@@ -1,4 +1,4 @@
-use std::{fs::read, io::Cursor, path::Path};
+use std::{convert::TryFrom, fs::read, io::Cursor, path::Path};
 
 use anyhow::{anyhow, bail, Result};
 use image::{ColorType, ImageDecoder};
@@ -6,11 +6,11 @@ use img_parts::jpeg::Jpeg;
 use ndarray::Array2;
 use serde_derive::*;
 
-use crate::{flir::FlirSegment, temperature::ThermalSettings};
+use crate::{exif::ThermalExiftoolJson, flir::FlirSegment, temperature::ThermalSettings};
 
 pub struct ThermalImage {
     pub settings: ThermalSettings,
-    pub image: Array2<u16>,
+    pub image: Array2<f64>,
 }
 impl ThermalImage {
     pub fn from_rjpeg(image: &Jpeg) -> Result<Self> {
@@ -28,6 +28,21 @@ impl ThermalImage {
     pub fn from_rjpeg_path(path: &Path) -> Result<Self> {
         let image = Jpeg::from_bytes(read(path)?.into())?;
         Self::from_rjpeg(&image)
+    }
+
+    pub fn try_from_thermal_exiftool_json(json: ThermalExiftoolJson) -> Result<Self> {
+        Ok(Self {
+            settings: json.settings,
+            image: json.raw.thermal_image()?,
+        })
+    }
+}
+
+impl TryFrom<ThermalExiftoolJson> for ThermalImage {
+    type Error = anyhow::Error;
+
+    fn try_from(value: ThermalExiftoolJson) -> Result<Self> {
+        Self::try_from_thermal_exiftool_json(value)
     }
 }
 

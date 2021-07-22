@@ -6,24 +6,32 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = "1.0.126"
-serde_derive = "1.0.126"
-lazy_static = "1.4.0"
-regex = "1.5.4"
-serde_json = "1.0.64"
+
+# CLI, error
 anyhow = "1.0.41"
 clap = "2.33.3"
 Inflector = "0.11.4"
-base64 = "0.13.0"
-image = "0.23.14"
-ndarray = "0.15.3"
-zerocopy = "0.5.0"
-rayon = "1.5.1"
 indicatif = { version = "0.16.2", features = ["rayon"] }
+itertools = "0.10.1"
+shlex = "1.0.0"
+
+# Parsing related
+serde = "1.0.126"
+serde_derive = "1.0.126"
+serde_json = "1.0.64"
 bincode = "1.3.3"
+zerocopy = "0.5.0"
+byteordered = "0.5.0"
+
+lazy_static = "1.4.0"
+regex = "1.5.4"
+
+base64 = "0.13.0"
+ndarray = "0.15.3"
+rayon = "1.5.1"
+
+# Image related
+image = "0.23.14"
 img-parts = "0.2.3"
 png = "0.16.8"
-byteordered = "0.5.0"
-itertools = "0.10.1"
 tiff = "0.6.1"
-shlex = "1.0.0"

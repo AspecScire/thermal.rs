@@ -1,3 +1,19 @@
+//! Parse parameters from FLIR R-JPEGs.
+//!
+//! This is an incomplete port of relevant parts of the
+//! excellent [ExifTool] by Phil Harvey and other authors.
+//! Currently only supports R-JPEGs with FFF headers, with
+//! 16-bit raw image, and only reads enough parameters to be
+//! able to compute [`temperature`][crate::temperature] values
+//! from the raw sensor values.
+//!
+//! For a more complete extraction of FLIR and other
+//! metadata, please use [ExifTool] directly. The JSON
+//! output from `exiftool -j -b` can also be used directly
+//! to compute the temperature values via the
+//! [`exif`][crate::exif] module.
+//!
+//! [ExifTool]: //exiftool.org
 use std::io::Read;
 
 use anyhow::{anyhow, bail, ensure, Result};
@@ -7,32 +23,37 @@ use ndarray::Array2;
 use serde::Deserialize;
 use serde_derive::*;
 
+/// Data collected from the FLIR segment(s) of an R-JPEG.
 #[derive(Debug)]
 pub struct FlirSegment {
     data: Vec<u8>,
     dir: Vec<FlirRecordDirEntry>,
 }
-impl FlirSegment {
-    pub fn size(&self) -> usize {
-        self.data.len()
-    }
-    pub fn num_records(&self) -> usize {
-        self.dir.len()
-    }
-}
 
 impl FlirSegment {
+    /// Tries to collect all the FLIR segments from an
+    /// [`Jpeg`] image and parse the FLIR header from it.
+    /// Returns a `FlirSegment` if both steps are
+    /// successful.
     pub fn try_from_jpeg(image: &Jpeg) -> Result<Self> {
-        let data = extract_flir_segment_from_jpeg(image)?;
+        let data = collect_flir_segment_data_from_jpeg(image)?;
         let dir = parse_flir_segment(&data)?;
         Ok(FlirSegment { data, dir })
     }
-    pub fn try_parse_raw_data(&self) -> Result<Option<Array2<u16>>> {
+
+    /// Try to find and parse raw sensor values as a 2-D
+    /// array. Returns the raw values as a 2-D array of
+    /// `f64`s if found, and `None` if not found (but the
+    /// parsing was otherwise successful).
+    pub fn try_parse_raw_data(&self) -> Result<Option<Array2<f64>>> {
         self.dir
             .iter()
             .find_map(|e| e.try_parse_raw_data(&self.data).transpose())
             .transpose()
     }
+
+    /// Try to find and parse the FLIR camera parameters
+    /// from the data. Returns `None` if not found.
     pub fn try_parse_camera_params(&self) -> Result<Option<FlirCameraParams>> {
         self.dir
             .iter()
@@ -41,83 +62,72 @@ impl FlirSegment {
     }
 }
 
-fn extract_flir_segment_from_jpeg(image: &Jpeg) -> Result<Vec<u8>> {
-    #[derive(Deserialize)]
-    struct FlirSegment {
-        signature: [u8; 5],
-        _dummy: u8,
-        current_segment: u8,
-        total_segments: u8,
-    }
-    impl FlirSegment {
-        fn is_valid_flir(&self) -> bool {
-            &self.signature == b"FLIR\0"
-        }
-    }
-
-    let mut flir_segments = vec![];
+/// Collect FLIR data from Jpeg APP1 segments.
+///
+/// # Implementation
+///
+/// FLIR data is stored as a collection of APP1 segments
+/// with the following format:
+///
+/// - 0x0: signature: "FLIR\0"
+/// - 0x6: segment number: zero-based idx
+/// - 0x7: last segment number (= total segments - 1)
+/// - 0x8..: data
+fn collect_flir_segment_data_from_jpeg(image: &Jpeg) -> Result<Vec<u8>> {
+    let mut flir_segments: Vec<Vec<u8>> = vec![];
     let mut num_copied = 0;
     let mut total_len = 0;
 
     for segment in image.segments_by_marker(markers::APP1) {
         let contents = segment.contents();
-        if contents.len() < 8 {
-            continue;
-        }
-        let segment: FlirSegment = deserialize(&contents)?;
-        if !segment.is_valid_flir() {
+        if contents.len() < 8 || &contents[0..5] != b"FLIR\0" {
             continue;
         }
 
-        let FlirSegment {
-            current_segment,
-            total_segments,
-            ..
-        } = segment;
-        let total_segments = 1 + total_segments as usize;
+        let current_segment = contents[6] as usize;
+        let total_segments = contents[7] as usize + 1;
 
         match flir_segments.len() {
-            0 => {
-                flir_segments.resize(total_segments, vec![]);
-            }
-            l if l != total_segments => {
-                bail!(
-                    "inconsistent count of total FLIR segments: {} != {}",
-                    l,
-                    total_segments
-                );
-            }
-            l if l <= current_segment as usize => {
-                bail!(
-                    "FLIR segment idx out of bounds: {} >= {}",
-                    current_segment,
-                    l
-                );
-            }
-            _ => {}
+            0 => flir_segments.resize(total_segments, vec![]),
+            l if l != total_segments => bail!(
+                "inconsistent count of total FLIR segments: {} != {}",
+                l,
+                total_segments
+            ),
+            l if l <= current_segment as usize => bail!(
+                "FLIR segment idx out of bounds: {} >= {}",
+                current_segment,
+                l
+            ),
+            _ => (),
         }
 
         let curr_seg = &mut flir_segments[current_segment as usize];
-        if curr_seg.len() > 0 {
-            bail!("duplicate FLIR segment: idx = {}", current_segment);
-        }
+        ensure!(
+            curr_seg.len() == 0,
+            "duplicate FLIR segment: idx = {}",
+            current_segment
+        );
+
         curr_seg.extend_from_slice(&contents[8..]);
         num_copied += 1;
         total_len += curr_seg.len();
     }
-    if num_copied != flir_segments.len() {
-        bail!(
-            "expected {} FLIR segments, found only {}",
-            flir_segments.len(),
-            num_copied
-        );
-    }
+
+    ensure!(
+        num_copied == flir_segments.len(),
+        "expected {} FLIR segments, found only {}",
+        flir_segments.len(),
+        num_copied
+    );
+
     let mut flir_data = Vec::with_capacity(total_len);
     for seg in flir_segments {
         flir_data.extend_from_slice(&seg);
     }
     Ok(flir_data)
 }
+
 fn is_segment_little_endian(segment: &[u8]) -> Result<bool> {
     #[derive(Debug, Deserialize)]
     struct FlirHeaderPre {
@@ -200,7 +210,7 @@ impl FlirRecordDirEntry {
     pub fn data<'a>(&self, segment: &'a [u8]) -> Option<&'a [u8]> {
         segment.get(self.offset as usize..(self.offset + self.length) as usize)
     }
-    pub fn try_parse_raw_data(&self, segment: &[u8]) -> Result<Option<Array2<u16>>> {
+    pub fn try_parse_raw_data(&self, segment: &[u8]) -> Result<Option<Array2<f64>>> {
         if self.ty != 0x01 {
             return Ok(None);
         }
@@ -238,7 +248,8 @@ impl FlirRecordDirEntry {
         let mut raw_data = Vec::with_capacity(width * height);
         for _ in 0..height {
             for _ in 0..width {
-                raw_data.push(deserialize_with_endian(is_le, &mut raw_data_slice)?);
+                raw_data
+                    .push(deserialize_with_endian::<u16, _>(is_le, &mut raw_data_slice)? as f64);
             }
         }
 

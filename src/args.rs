@@ -1,3 +1,6 @@
+//! Helpers to parse CLI arguments in the accompanying
+//! binaries.
+
 pub use clap::{App, Arg};
 pub use inflector::Inflector;
 
