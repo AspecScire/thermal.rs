@@ -14,16 +14,32 @@
 //! [`exif`][crate::exif] module.
 //!
 //! [ExifTool]: //exiftool.org
-use std::io::Read;
-
 use anyhow::{anyhow, bail, ensure, Result};
-use bincode::{deserialize, DefaultOptions, Options};
+use byteordered::{byteorder::ReadBytesExt, ByteOrdered, Endian, Endianness};
 use img_parts::jpeg::{markers, Jpeg};
 use ndarray::Array2;
-use serde::Deserialize;
 use serde_derive::*;
 
-/// Data collected from the FLIR segment(s) of an R-JPEG.
+use crate::parse::Parseable;
+
+/// FLIR data along with parsed header.
+///
+/// # FLIR Header Format
+///
+/// The format of the FLIR segment header is explained in
+/// ExifTool source code thanks to the authors' excellent
+/// work.
+///
+/// - 0x00 - `string[4]` file format ID = "FFF\0"
+/// - 0x04 - `string[16]` file creator: seen "\0","MTX IR\0","CAMCTRL\0"
+/// - 0x14 - `int32u` file format version = 100
+/// - 0x18 - `int32u` offset to record directory
+/// - 0x1c - `int32u` number of entries in record directory
+/// - 0x20 - `int32u` next free index ID = 2
+/// - 0x24 - `int16u` swap pattern = 0 (?)
+/// - 0x28 - `int16u[7]` spares
+/// - 0x34 - `int32u[2]` reserved
+/// - 0x3c - `int32u` checksum
 #[derive(Debug)]
 pub struct FlirSegment {
     data: Vec<u8>,
@@ -31,14 +47,13 @@ pub struct FlirSegment {
 }
 
 impl FlirSegment {
-    /// Tries to collect all the FLIR segments from an
+    /// Try to collect all the FLIR segments from an
     /// [`Jpeg`] image and parse the FLIR header from it.
     /// Returns a `FlirSegment` if both steps are
     /// successful.
     pub fn try_from_jpeg(image: &Jpeg) -> Result<Self> {
         let data = collect_flir_segment_data_from_jpeg(image)?;
-        let dir = parse_flir_segment(&data)?;
-        Ok(FlirSegment { data, dir })
+        Self::try_from_segment_data(data)
     }
 
     /// Try to find and parse raw sensor values as a 2-D
@@ -60,6 +75,40 @@ impl FlirSegment {
             .find_map(|e| e.try_parse_camera_params(&self.data).transpose())
             .transpose()
     }
+
+    fn try_from_segment_data(data: Vec<u8>) -> Result<Self> {
+        parse_as_bindings! {
+            ByteOrdered::native(&data[..]),
+            signature => [u8; 4],
+            _creator as "creator" => [u8; 16],
+            version => u32,
+        }
+
+        ensure!(&signature == b"FFF\0", "unexpected signature");
+
+        // A heuristic to find if header data is LE or BE:
+        // check that version is in [100, 200).
+        let endianness = {
+            let end = Endianness::native();
+            if version >= 100 && version < 200 {
+                end
+            } else {
+                end.to_opposite()
+            }
+        };
+
+        parse_as_bindings! {
+            ByteOrdered::runtime(&data[0x18..], endianness),
+            offset => u32 as usize,
+            num_records => u32 as usize,
+        }
+
+        let mut reader = ByteOrdered::runtime(&data[offset..], endianness);
+        let dir: Result<_> = (0..num_records)
+            .map(|_| FlirRecordDirEntry::parse(&mut reader))
+            .collect();
+        Ok(FlirSegment { data, dir: dir? })
+    }
 }
 
 /// Collect FLIR data from Jpeg APP1 segments.
@@ -73,6 +122,13 @@ impl FlirSegment {
 /// - 0x6: segment number: zero-based idx
 /// - 0x7: last segment number (= total segments - 1)
 /// - 0x8..: data
+///
+/// The logic is exactly as in [ExifTool.pm]. We iterate
+/// through all APP1 segments; check each for the signature;
+/// verify the segment idx, total are consistent; and return
+/// the concatenated payload.
+///
+/// [ExifTool.pm]: //github.com/exiftool/exiftool/blob/master/lib/Image/ExifTool.pm
 fn collect_flir_segment_data_from_jpeg(image: &Jpeg) -> Result<Vec<u8>> {
     let mut flir_segments: Vec<Vec<u8>> = vec![];
     let mut num_copied = 0;
@@ -128,60 +184,6 @@ fn collect_flir_segment_data_from_jpeg(image: &Jpeg) -> Result<Vec<u8>> {
     Ok(flir_data)
 }
 
-fn is_segment_little_endian(segment: &[u8]) -> Result<bool> {
-    #[derive(Debug, Deserialize)]
-    struct FlirHeaderPre {
-        format: [u8; 4],
-        creator: [u8; 16],
-        version: u32,
-    }
-
-    let hdr: FlirHeaderPre = DefaultOptions::new()
-        .with_little_endian()
-        .with_fixint_encoding()
-        .allow_trailing_bytes()
-        .deserialize(&segment)?;
-
-    if &hdr.format != b"FFF\0" {
-        bail!("unexpected signature in FLIR segment");
-    }
-
-    Ok(hdr.version >= 100 && hdr.version < 200)
-}
-fn parse_flir_segment(segment: &[u8]) -> Result<Vec<FlirRecordDirEntry>> {
-    let is_le = is_segment_little_endian(segment)?;
-
-    // # FLIR file header (ref 3)
-    // # 0x00 - string[4] file format ID = "FFF\0"
-    // # 0x04 - string[16] file creator: seen "\0","MTX IR\0","CAMCTRL\0"
-    // # 0x14 - int32u file format version = 100
-    // # 0x18 - int32u offset to record directory
-    // # 0x1c - int32u number of entries in record directory
-    // # 0x20 - int32u next free index ID = 2
-    // # 0x24 - int16u swap pattern = 0 (?)
-    // # 0x28 - int16u[7] spares
-    // # 0x34 - int32u[2] reserved
-    // # 0x3c - int32u checksum
-    #[derive(Debug, Deserialize)]
-    struct FlirHeader {
-        offset: u32,
-        num_entries: u32,
-
-        next_free: u32,
-        swap_pattern: u16,
-        spares: [u16; 7],
-        reserved: [u32; 2],
-        checksum: u32,
-    }
-
-    let hdr: FlirHeader = deserialize_with_endian(is_le, &segment[0x18..])?;
-    let mut dir_segment = &segment[hdr.offset as usize..];
-
-    (0..hdr.num_entries)
-        .map(|_| deserialize_with_endian(is_le, &mut dir_segment))
-        .collect()
-}
-
 // # FLIR record entry (ref 3):
 // # 0x00 - int16u record type
 // # 0x02 - int16u record subtype: RawData 1=BE, 2=LE, 3=PNG; 1 for other record types
@@ -192,51 +194,65 @@ fn parse_flir_segment(segment: &[u8]) -> Result<Vec<FlirRecordDirEntry>> {
 // # 0x14 - int32u parent = 0 (?)
 // # 0x18 - int32u object number = 0 (?)
 // # 0x1c - int32u checksum: 0 for no checksum
-#[derive(Debug, Deserialize)]
-pub struct FlirRecordDirEntry {
-    ty: u16,
-    sub_type: u16,
-    version: u32,
+declare_parseable_struct! {
+    /// Details of a FLIR record
+    #[derive(Debug)]
+    pub struct FlirRecordDirEntry {
+        ty => u16,
+        sub_type=> u16,
+        version=> u32,
 
-    id: u32,
-    offset: u32,
-    length: u32,
+        id=> u32,
+        offset=> u32,
+        length=> u32,
 
-    parent: u32,
-    obj_num: u32,
-    checksum: u32,
+        parent=> u32,
+        obj_num=> u32,
+        checksum=> u32,
+    }
 }
 impl FlirRecordDirEntry {
-    pub fn data<'a>(&self, segment: &'a [u8]) -> Option<&'a [u8]> {
-        segment.get(self.offset as usize..(self.offset + self.length) as usize)
+    /// Get the data associated with this record
+    pub fn data<'a>(&self, segment: &'a [u8]) -> Result<&'a [u8]> {
+        segment
+            .get(self.offset as usize..(self.offset + self.length) as usize)
+            .ok_or_else(|| anyhow!("unexpected EOF while reading data"))
     }
+
     pub fn try_parse_raw_data(&self, segment: &[u8]) -> Result<Option<Array2<f64>>> {
         if self.ty != 0x01 {
             return Ok(None);
         }
         ensure!(self.sub_type != 3, "PNG type raw data not yet supported");
 
-        let data = self
-            .data(segment)
-            .ok_or_else(|| anyhow!("unexpected end of FLIR segment while reading record"))?;
+        let data = self.data(segment)?;
 
         ensure!(
             data.len() > 6,
             "raw data record size mismatch: expected at least 6 bytes, found {}",
             data.len(),
         );
-        let is_le = deserialize_with_endian::<u16, _>(true, &data[..])? == 2;
 
-        #[derive(Debug, Deserialize)]
-        struct RawDataDims {
-            width: u16,
-            height: u16,
+        let endianness = {
+            parse_as_bindings! {
+                ByteOrdered::native(&data[0..2]),
+                check_val => u16,
+            }
+            let end = Endianness::native();
+            if check_val == 2 {
+                end
+            } else {
+                end.to_opposite()
+            }
+        };
+
+        parse_as_bindings! {
+            ByteOrdered::runtime(&data[2..], endianness),
+            width => u16 as usize,
+            height => u16 as usize,
         }
-        let dims: RawDataDims = deserialize_with_endian(is_le, &data[2..])?;
-        let width: usize = dims.width as usize;
-        let height: usize = dims.height as usize;
-        let expected = 2 * (16 + width * height);
 
+        let expected = 2 * (16 + width * height);
         ensure!(
             data.len() == expected,
             "raw data record size mismatch: expected {} bytes, found {}",
@@ -244,26 +260,25 @@ impl FlirRecordDirEntry {
             data.len()
         );
 
-        let mut raw_data_slice = &data[0x20..];
+        let mut reader = ByteOrdered::runtime(&data[0x20..], endianness);
         let mut raw_data = Vec::with_capacity(width * height);
         for _ in 0..height {
             for _ in 0..width {
                 raw_data
-                    .push(deserialize_with_endian::<u16, _>(is_le, &mut raw_data_slice)? as f64);
+                    .push(
+                        u16::parse(&mut reader)? as f64
+                    );
             }
         }
 
         Ok(Some(Array2::from_shape_vec((height, width), raw_data)?))
     }
-
     pub fn try_parse_camera_params(&self, segment: &[u8]) -> Result<Option<FlirCameraParams>> {
         if self.ty != 0x20 {
             return Ok(None);
         }
 
-        let data = self
-            .data(segment)
-            .ok_or_else(|| anyhow!("unexpected end of FLIR segment while reading record"))?;
+        let data = self.data(segment)?;
 
         ensure!(
             data.len() >= 0x384,
@@ -272,14 +287,39 @@ impl FlirRecordDirEntry {
             data.len()
         );
 
-        let is_le = deserialize_with_endian::<u16, _>(true, &data[..])? == 2;
+        let endianness = {
+            parse_as_bindings! {
+                ByteOrdered::native(&data[0..2]),
+                check_val => u16,
+            }
+            let end = Endianness::native();
+            if check_val == 2 {
+                end
+            } else {
+                end.to_opposite()
+            }
+        };
 
-        let temperature_params: FlirTemperatureParams =
-            deserialize_with_endian(is_le, &data[0x20..])?;
-        let camera_info: FlirCameraInfo = deserialize_with_endian(is_le, &data[0xd4..])?;
-        let lens_info: FlirLensInfo = deserialize_with_endian(is_le, &data[0x170..])?;
-        let filter_info: FlirFilterInfo = deserialize_with_endian(is_le, &data[0x1ec..])?;
-        let extra_params: FlirExtraParams = deserialize_with_endian(is_le, &data[0x308..])?;
+        parse_as_bindings! {
+            ByteOrdered::runtime(&data[0x20..], endianness),
+            temperature_params => FlirTemperatureParams,
+        }
+        parse_as_bindings! {
+            ByteOrdered::runtime(&data[0xd4..], endianness),
+            camera_info => FlirCameraInfo,
+        }
+        parse_as_bindings! {
+            ByteOrdered::runtime(&data[0x170..], endianness),
+            lens_info => FlirLensInfo,
+        }
+        parse_as_bindings! {
+            ByteOrdered::runtime(&data[0x1ec..], endianness),
+            filter_info => FlirFilterInfo,
+        }
+        parse_as_bindings! {
+            ByteOrdered::runtime(&data[0x308..], endianness),
+            extra_params => FlirExtraParams,
+        }
 
         Ok(Some(FlirCameraParams {
             temperature_params,
@@ -291,7 +331,8 @@ impl FlirRecordDirEntry {
     }
 }
 
-#[derive(Debug, Deserialize)]
+/// Flir Camera Parameters
+#[derive(Debug)]
 pub struct FlirCameraParams {
     pub(crate) temperature_params: FlirTemperatureParams,
     pub(crate) camera_info: FlirCameraInfo,
@@ -300,76 +341,68 @@ pub struct FlirCameraParams {
     pub(crate) extra_params: FlirExtraParams,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct FlirTemperatureParams {
-    pub(crate) emissivity: f32,
-    pub(crate) object_distance: f32,
+declare_parseable_structs! {
+    /// Flir Temperature Parameters
+    #[derive(Debug)]
+    pub struct FlirTemperatureParams {
+        pub(crate) emissivity => f32,
+        pub(crate) object_distance => f32,
 
-    pub(crate) reflected_apparent_temperature: f32,
-    pub(crate) atmospheric_temperature: f32,
-    pub(crate) ir_window_temperature: f32,
-    pub(crate) ir_window_transmission: f32,
+        pub(crate) reflected_apparent_temperature => f32,
+        pub(crate) atmospheric_temperature => f32,
+        pub(crate) ir_window_temperature => f32,
+        pub(crate) ir_window_transmission => f32,
 
-    _dummy_ignore: u32,
+        _dummy_ignore => u32,
 
-    pub(crate) relative_humidity: f32,
-    _dummy_ignore_1: [u32; 6],
+        pub(crate) relative_humidity => f32,
+        _dummy_ignore_1 => [u32; 6],
 
-    pub(crate) planck_r1: f32,
-    pub(crate) planck_b: f32,
-    pub(crate) planck_f: f32,
-    _dummy_ignore_2: [u32; 3],
+        pub(crate) planck_r1 => f32,
+        pub(crate) planck_b => f32,
+        pub(crate) planck_f => f32,
+        _dummy_ignore_2 => [u32; 3],
 
-    pub(crate) atmospheric_transmission_alpha_1: f32,
-    pub(crate) atmospheric_transmission_alpha_2: f32,
-    pub(crate) atmospheric_transmission_beta_1: f32,
-    pub(crate) atmospheric_transmission_beta_2: f32,
-    pub(crate) atmospheric_transmission_x: f32,
-    _dummy_ignore_3: [u32; 3],
+        pub(crate) atmospheric_transmission_alpha_1 => f32,
+        pub(crate) atmospheric_transmission_alpha_2 => f32,
+        pub(crate) atmospheric_transmission_beta_1 => f32,
+        pub(crate) atmospheric_transmission_beta_2 => f32,
+        pub(crate) atmospheric_transmission_x => f32,
+        _dummy_ignore_3 => [u32; 3],
 
-    pub(crate) camera_temperature_range: [f32; 8],
-}
+        pub(crate) camera_temperature_range => [f32; 8],
+    }
 
-#[derive(Debug, Deserialize)]
-pub struct FlirCameraInfo {
-    pub(crate) camera_mode: [u8; 32],
-    pub(crate) camera_part_number: [u8; 16],
-    pub(crate) camera_serial_number: [u8; 16],
-    pub(crate) camera_software: [u8; 16],
-}
+    /// Flir Camera Info
+    #[derive(Debug, Deserialize)]
+    pub struct FlirCameraInfo {
+        pub(crate) camera_mode => [u8; 32],
+        pub(crate) camera_part_number => [u8; 16],
+        pub(crate) camera_serial_number => [u8; 16],
+        pub(crate) camera_software => [u8; 16],
+    }
 
-#[derive(Debug, Deserialize)]
-pub struct FlirLensInfo {
-    pub(crate) lens_mode: [u8; 32],
-    pub(crate) lens_part_number: [u8; 16],
-    pub(crate) lens_serial_number: [u8; 16],
-}
+    /// Flir Lens Info
+    #[derive(Debug, Deserialize)]
+    pub struct FlirLensInfo {
+        pub(crate) lens_mode => [u8; 32],
+        pub(crate) lens_part_number => [u8; 16],
+        pub(crate) lens_serial_number => [u8; 16],
+    }
 
-#[derive(Debug, Deserialize)]
-pub struct FlirFilterInfo {
-    pub(crate) filter_mode: [u8; 32],
-    pub(crate) filter_part_number: [u8; 16],
-    pub(crate) filter_serial_number: [u8; 16],
-}
+    /// Flir Filter Info
+    #[derive(Debug, Deserialize)]
+    pub struct FlirFilterInfo {
+        pub(crate) filter_mode => [u8; 32],
+        pub(crate) filter_part_number => [u8; 16],
+        pub(crate) filter_serial_number => [u8; 16],
+    }
 
-#[derive(Debug, Deserialize)]
-pub struct FlirExtraParams {
-    pub(crate) planck_o: i32,
-    pub(crate) planck_r2: f32,
-    pub(crate) raw_value_ranges: [u16; 4],
-}
-
-fn deserialize_with_endian<'a, T, R>(use_little_endian: bool, read: R) -> Result<T>
-where
-    T: for<'de> Deserialize<'de>,
-    R: Read,
-{
-    let opts = DefaultOptions::new()
-        .with_fixint_encoding()
-        .allow_trailing_bytes();
-    Ok(if use_little_endian {
-        opts.with_little_endian().deserialize_from(read)?
-    } else {
-        opts.with_big_endian().deserialize_from(read)?
-    })
+    /// Flir Extra Info
+    #[derive(Debug, Deserialize)]
+    pub struct FlirExtraParams {
+        pub(crate) planck_o => i32,
+        pub(crate) planck_r2 => f32,
+        pub(crate) raw_value_ranges => [u16; 4],
+    }
 }
