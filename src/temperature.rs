@@ -1,19 +1,43 @@
 //! Functions to compute temperature from raw sensor values.
 //!
-//! Ported from [read_thermal.py] which itself is ported from
-//! [Thermimage R library].
+//! Ported from the [Thermimage R library] and its [python
+//! port][read_thermal.py].
 //!
 //! [read_thermal.py]: //github.com/Nervengift/read_thermal.py/blob/master/flir_image_extractor.py
 //! [Thermimage R library]: //github.com/gtatters/Thermimage/blob/master/R/raw2temp.R
 
-/// Parameters to compute temperatures from raw sensor
-/// values.
-///
-/// This is typically read from the exif data of the image.
 use serde_derive::*;
 
 use crate::flir::FlirCameraParams;
 
+
+/// Parameters to compute temperatures from raw sensor
+/// values.
+///
+/// This can also be deserialized from JSON output of
+/// exiftool. In this case, the user is expected to parse
+/// the raw sensor values separately.
+///
+/// # Camera Distance
+///
+/// The calculation of temperature from sensor values
+/// depends on the distance of the lens from the object.
+/// Unfortunately, this is seldom recorded and there is no
+/// standard tag in the metadata for it. For instance, the
+/// [read_thermal.py] library uses `SubjectDistance` field
+/// in metadata, which I never found in our datasets. The
+/// now discontinued Flirtool seems to be using
+/// `FocusDistance` which is recorded as `0.0` in many of
+/// our datasets.
+///
+/// Here, we just accept the distance as an extra input for
+/// the conversion and expect the user to provide it. The
+/// [read_thermal.py] library uses the value `1.0` if it
+/// couldn't find the distance tag and it seems to work well
+/// in practice. Typically, the absolute error in conversion
+/// using `1.0` instead of a true value of `50.0` is about
+/// 2-3 deg C; the relative error (i.e. error in temperature
+/// difference across pixels) is much smaller.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub struct ThermalSettings {
@@ -85,6 +109,7 @@ impl ThermalSettings {
         self.atmospheric_transmission_x * val1 + (1. - self.atmospheric_transmission_x) * val2
     }
 
+    /// Construct a transform to compute adjusted sensor values from the raw sensor values.
     pub fn raw_transform(&self, distance: f64) -> impl Fn(f64) -> f64 {
         // This is step to step port of the R code
 
@@ -149,6 +174,11 @@ impl ThermalSettings {
         move |raw| power_series_at(&coeffs, raw)
     }
 
+    /// Construct a transform to compute temperature in
+    /// celicius from raw sensor values. This is more
+    /// efficient than using
+    /// [`raw_to_temp`][ThermalSettings::raw_to_temp]
+    /// multiple times.
     pub fn temperature_transform(&self, distance: f64) -> impl Fn(f64) -> f64 + '_ {
         let t = self.raw_transform(distance);
         move |raw| {
@@ -157,6 +187,7 @@ impl ThermalSettings {
         }
     }
 
+    /// Compute temperature in celicius from raw sensor values.
     pub fn raw_to_temp(&self, distance: f64, raw: f64) -> f64 {
         self.temperature_transform(distance)(raw)
     }

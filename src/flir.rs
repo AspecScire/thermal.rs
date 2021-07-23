@@ -10,15 +10,14 @@
 //! For a more complete extraction of FLIR and other
 //! metadata, please use [ExifTool] directly. The JSON
 //! output from `exiftool -j -b` can also be used directly
-//! to compute the temperature values via the
-//! [`exif`][crate::exif] module.
+//! to compute the temperature values via [ThermalExiftoolJson]
 //!
 //! [ExifTool]: //exiftool.org
+//! [ThermalExiftoolJson]: crate::image::ThermalExiftoolJson
 use anyhow::{anyhow, bail, ensure, Result};
 use byteordered::{byteorder::ReadBytesExt, ByteOrdered, Endian, Endianness};
 use img_parts::jpeg::{markers, Jpeg};
 use ndarray::Array2;
-use serde_derive::*;
 
 use crate::parse::Parseable;
 
@@ -334,75 +333,75 @@ impl FlirRecordDirEntry {
 /// Flir Camera Parameters
 #[derive(Debug)]
 pub struct FlirCameraParams {
-    pub(crate) temperature_params: FlirTemperatureParams,
-    pub(crate) camera_info: FlirCameraInfo,
-    pub(crate) lens_info: FlirLensInfo,
-    pub(crate) filter_info: FlirFilterInfo,
-    pub(crate) extra_params: FlirExtraParams,
+    pub temperature_params: FlirTemperatureParams,
+    pub camera_info: FlirCameraInfo,
+    pub lens_info: FlirLensInfo,
+    pub filter_info: FlirFilterInfo,
+    pub extra_params: FlirExtraParams,
 }
 
 declare_parseable_structs! {
     /// Flir Temperature Parameters
     #[derive(Debug)]
     pub struct FlirTemperatureParams {
-        pub(crate) emissivity => f32,
-        pub(crate) object_distance => f32,
+        pub emissivity => f32,
+        pub object_distance => f32,
 
-        pub(crate) reflected_apparent_temperature => f32,
-        pub(crate) atmospheric_temperature => f32,
-        pub(crate) ir_window_temperature => f32,
-        pub(crate) ir_window_transmission => f32,
+        pub reflected_apparent_temperature => f32,
+        pub atmospheric_temperature => f32,
+        pub ir_window_temperature => f32,
+        pub ir_window_transmission => f32,
 
         _dummy_ignore => u32,
 
-        pub(crate) relative_humidity => f32,
+        pub relative_humidity => f32,
         _dummy_ignore_1 => [u32; 6],
 
-        pub(crate) planck_r1 => f32,
-        pub(crate) planck_b => f32,
-        pub(crate) planck_f => f32,
+        pub planck_r1 => f32,
+        pub planck_b => f32,
+        pub planck_f => f32,
         _dummy_ignore_2 => [u32; 3],
 
-        pub(crate) atmospheric_transmission_alpha_1 => f32,
-        pub(crate) atmospheric_transmission_alpha_2 => f32,
-        pub(crate) atmospheric_transmission_beta_1 => f32,
-        pub(crate) atmospheric_transmission_beta_2 => f32,
-        pub(crate) atmospheric_transmission_x => f32,
+        pub atmospheric_transmission_alpha_1 => f32,
+        pub atmospheric_transmission_alpha_2 => f32,
+        pub atmospheric_transmission_beta_1 => f32,
+        pub atmospheric_transmission_beta_2 => f32,
+        pub atmospheric_transmission_x => f32,
         _dummy_ignore_3 => [u32; 3],
 
-        pub(crate) camera_temperature_range => [f32; 8],
+        pub camera_temperature_range => [f32; 8],
     }
 
     /// Flir Camera Info
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug)]
     pub struct FlirCameraInfo {
-        pub(crate) camera_mode => [u8; 32],
-        pub(crate) camera_part_number => [u8; 16],
-        pub(crate) camera_serial_number => [u8; 16],
-        pub(crate) camera_software => [u8; 16],
+        pub camera_mode => [u8; 32],
+        pub camera_part_number => [u8; 16],
+        pub camera_serial_number => [u8; 16],
+        pub camera_software => [u8; 16],
     }
 
     /// Flir Lens Info
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug)]
     pub struct FlirLensInfo {
-        pub(crate) lens_mode => [u8; 32],
-        pub(crate) lens_part_number => [u8; 16],
-        pub(crate) lens_serial_number => [u8; 16],
+        pub lens_mode => [u8; 32],
+        pub lens_part_number => [u8; 16],
+        pub lens_serial_number => [u8; 16],
     }
 
     /// Flir Filter Info
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug)]
     pub struct FlirFilterInfo {
-        pub(crate) filter_mode => [u8; 32],
-        pub(crate) filter_part_number => [u8; 16],
-        pub(crate) filter_serial_number => [u8; 16],
+        pub filter_mode => [u8; 32],
+        pub filter_part_number => [u8; 16],
+        pub filter_serial_number => [u8; 16],
     }
 
     /// Flir Extra Info
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug)]
     pub struct FlirExtraParams {
-        pub(crate) planck_o => i32,
-        pub(crate) planck_r2 => f32,
-        pub(crate) raw_value_ranges => [u16; 4],
+        pub planck_o => i32,
+        pub planck_r2 => f32,
+        pub raw_value_ranges => [u16; 4],
     }
 }

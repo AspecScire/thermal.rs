@@ -1,4 +1,6 @@
-use std::{convert::TryFrom, fs::read, io::Cursor, path::Path};
+//! Parse and extract raw thermal image and temperature
+//! params.
+use std::{convert::TryFrom, fs::read, io::Cursor, path::{Path, PathBuf}};
 
 use anyhow::{anyhow, bail, Result};
 use image::{ColorType, ImageDecoder};
@@ -6,14 +8,19 @@ use img_parts::jpeg::Jpeg;
 use ndarray::Array2;
 use serde_derive::*;
 
-use crate::{exif::ThermalExiftoolJson, flir::FlirSegment, temperature::ThermalSettings};
+use crate::{flir::FlirSegment, temperature::ThermalSettings};
 
+
+/// Container for the raw sensor values, and the parameters
+/// of a single Flir image.
 pub struct ThermalImage {
     pub settings: ThermalSettings,
     pub image: Array2<f64>,
 }
 impl ThermalImage {
-    pub fn from_rjpeg(image: &Jpeg) -> Result<Self> {
+    /// Parse a `ThermalImage` from
+    /// [`Jpeg`][`img_parts::jpeg::Jpeg`].
+    pub fn try_from_rjpeg(image: &Jpeg) -> Result<Self> {
         let flir_segment = FlirSegment::try_from_jpeg(&image)?;
         let image = flir_segment
             .try_parse_raw_data()?
@@ -25,11 +32,14 @@ impl ThermalImage {
         Ok(ThermalImage { image, settings })
     }
 
-    pub fn from_rjpeg_path(path: &Path) -> Result<Self> {
+    /// Parse a `ThermalImage` from path to a R-Jpeg image file.
+    pub fn try_from_rjpeg_path<P: AsRef<Path>>(path: P) -> Result<Self> {
         let image = Jpeg::from_bytes(read(path)?.into())?;
-        Self::from_rjpeg(&image)
+        Self::try_from_rjpeg(&image)
     }
 
+    /// Try to convert a parsed `ThermalExiftoolJson`
+    /// structure into a `ThermalImage`.
     pub fn try_from_thermal_exiftool_json(json: ThermalExiftoolJson) -> Result<Self> {
         Ok(Self {
             settings: json.settings,
@@ -38,6 +48,23 @@ impl ThermalImage {
     }
 }
 
+/// Parse output of `exiftool` json output.
+///
+/// This is the entry point for users interested in parsing
+/// the output from `exiftool -j -b` on a thermal image. It
+/// expects and extracts both the thermal settings, and the
+/// raw image encoded as a base64 string.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ThermalExiftoolJson {
+    #[serde(rename = "SourceFile")]
+    pub source_file: PathBuf,
+
+    #[serde(flatten)]
+    pub settings: ThermalSettings,
+
+    #[serde(flatten)]
+    pub(crate) raw: ThermalRawBytes,
+}
 impl TryFrom<ThermalExiftoolJson> for ThermalImage {
     type Error = anyhow::Error;
 
@@ -46,6 +73,7 @@ impl TryFrom<ThermalExiftoolJson> for ThermalImage {
     }
 }
 
+/// Raw image bytes serialized by `exiftool` as JSON.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ThermalRawBytes {
     #[serde(rename = "RawThermalImageType")]
@@ -57,7 +85,6 @@ pub struct ThermalRawBytes {
     )]
     base64_bytes: Vec<u8>,
 }
-
 impl ThermalRawBytes {
     pub fn thermal_image(&self) -> Result<Array2<f64>> {
         if self.ty != "TIFF" {

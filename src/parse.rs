@@ -127,40 +127,6 @@ macro_rules! parse_from_reader {
     }};
 }
 
-#[test]
-fn test_decl() -> Result<()> {
-    declare_parseable_structs! {
-        pub struct Foo {
-            pub(crate) field => u8 as usize,
-        }
-
-        pub struct Bar {
-            #format => |e| format!("parsing `Bar.{}` (custom message)", e),
-            foo => Foo,
-        }
-    }
-
-    let slice: Vec<u8> = vec![0; 2];
-    let rdr = ByteOrdered::native(&slice[0x2..]);
-
-    Ok({
-        parse_from_reader!(rdr, |_| "bar expression (custom message)", Bar => "bar");
-    })
-}
-
-fn test_parse_as_bindings() -> anyhow::Result<()> {
-    let slice: Vec<u8> = vec![0; 2 + 4];
-    let mut rdr = ByteOrdered::native(&slice[0x2..]);
-    parse_as_bindings! {
-        &mut rdr,
-        #format => |e| format!("binding field {}", e),
-        _foo as "foo" => u32 as usize,
-        _bar =>  u64,
-        _dummy as "reserved" => [u8; 4],
-    }
-    Ok(())
-}
-
 pub(crate) trait Parseable: Sized {
     type Error;
     fn parse<T: ReadBytesExt, E: Endian>(r: &mut ByteOrdered<T, E>) -> Result<Self, Self::Error>;

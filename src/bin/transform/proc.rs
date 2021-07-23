@@ -54,7 +54,7 @@ fn image_to_u16_iterator<'a>(
 
 pub fn transform_image_tiff(path: &Path, args: &TransformArgs) -> Result<PathBuf> {
     let image = Jpeg::from_bytes(read(path)?.into())?;
-    let thermal = ThermalImage::from_rjpeg(&image)?;
+    let thermal = ThermalImage::try_from_rjpeg(&image)?;
 
     let (ht, wid) = thermal.image.dim();
     let mut image_buffer = {
@@ -81,7 +81,7 @@ pub fn transform_image_tiff(path: &Path, args: &TransformArgs) -> Result<PathBuf
 #[allow(dead_code)]
 pub fn transform_image_png(path: &Path, args: &TransformArgs) -> Result<PathBuf> {
     let image = Jpeg::from_bytes(read(path)?.into())?;
-    let thermal = ThermalImage::from_rjpeg(&image)?;
+    let thermal = ThermalImage::try_from_rjpeg(&image)?;
 
     let outpath = args.output_stem_for(path).with_extension("png");
     let image_writer = BufWriter::new(File::create(&outpath)?);

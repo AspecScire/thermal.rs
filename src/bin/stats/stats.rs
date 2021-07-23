@@ -2,7 +2,7 @@ use anyhow::Result;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde_derive::*;
 use std::{convert::TryInto, fs::File, io::BufReader, path::Path};
-use thermal::{exif::ThermalExiftoolJson, image::ThermalImage, stats::Stats};
+use thermal::{image::{ThermalExiftoolJson, ThermalImage}, stats::Stats};
 
 #[derive(Serialize, Debug)]
 pub struct ImageStats {
@@ -33,7 +33,7 @@ impl ImageStats {
         })
     }
     pub fn from_image_path(path: &Path, distance: f64) -> Result<Self> {
-        let thermal = ThermalImage::from_rjpeg_path(path)?;
+        let thermal = ThermalImage::try_from_rjpeg_path(path)?;
         Self::from_thermal_image(&thermal, distance, format!("{}", path.display()))
     }
 
