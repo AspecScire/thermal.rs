@@ -1,7 +1,16 @@
 [package]
 name = "thermal"
 version = "0.1.0"
+authors = ["Rajsekar Manokaran <rajsekar.manokaran@aspecscire.com>"]
 edition = "2018"
+
+documentation = "https://docs.rs/thermal"
+description = "Process thermal images from FLIR cameras"
+homepage = "https://github.com/AspecScire/thermal"
+repository = "https://github.com/AspecScire/thermal"
+readme = "README.md"
+
+license = "Apache-2.0/MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
