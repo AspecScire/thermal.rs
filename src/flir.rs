@@ -263,10 +263,7 @@ impl FlirRecordDirEntry {
         let mut raw_data = Vec::with_capacity(width * height);
         for _ in 0..height {
             for _ in 0..width {
-                raw_data
-                    .push(
-                        u16::parse(&mut reader)? as f64
-                    );
+                raw_data.push(u16::parse(&mut reader)? as f64);
             }
         }
 

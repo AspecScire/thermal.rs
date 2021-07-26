@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use thermal::{arg, args_parser, opt};
 
 pub struct Args {
-    pub paths: Vec<PathBuf>,
+    pub paths: Vec<String>,
+    pub is_json: bool,
     pub output: PathBuf,
     pub min: f64,
     pub max: f64,
@@ -17,6 +18,12 @@ impl Args {
         let matches = args_parser!("thermal-stats")
             .setting(clap::AppSettings::AllowLeadingHyphen)
             .about("Compute temperature stats from image.")
+            .arg(
+                opt!("json")
+                    .short("j")
+                    .takes_value(false)
+                    .help("Paths are jsons created using exiftool (default: paths are rjpegs)"),
+            )
             .arg(
                 opt!("output")
                     .required(true)
@@ -36,15 +43,15 @@ impl Args {
                     .help("Distance to use for calculation.  Default is 1.0"),
             )
             .arg(
-                arg!("images")
+                arg!("paths")
                     .required(true)
                     .multiple(true)
-                    .help("Image paths"),
+                    .help("Image / json paths"),
             )
             .get_matches();
 
         let paths = matches
-            .values_of("images")
+            .values_of("paths")
             .unwrap()
             .map(|f| f.into())
             .collect();
@@ -57,6 +64,7 @@ impl Args {
             .unwrap_or(1.0);
 
         let copy_exif = matches.is_present("copy exif");
+        let is_json = matches.is_present("json");
 
         Ok(Args {
             paths,
@@ -65,6 +73,7 @@ impl Args {
             min,
             max,
             copy_exif,
+            is_json,
         })
     }
 }

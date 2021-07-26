@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
-use thermal::image::ThermalImage;
+use thermal::{cli::ThermalInput, image::ThermalImage};
 
 pub struct TransformArgs {
     pub distance: f64,
@@ -35,8 +35,8 @@ impl TransformArgs {
         tval.max(0.).min(u16::MAX as f64) as u16
     }
 
-    pub fn output_stem_for(&self, path: &Path) -> PathBuf {
-        self.output.join(path.file_stem().unwrap())
+    pub fn output_stem_for<P: AsRef<Path>>(&self, path: P) -> PathBuf {
+        self.output.join(path.as_ref().file_stem().unwrap())
     }
 }
 
@@ -52,21 +52,18 @@ fn image_to_u16_iterator<'a>(
     }))
 }
 
-pub fn transform_image_tiff(path: &Path, args: &TransformArgs) -> Result<PathBuf> {
-    let image = Jpeg::from_bytes(read(path)?.into())?;
-    let thermal = ThermalImage::try_from_rjpeg(&image)?;
-
-    let (ht, wid) = thermal.image.dim();
+pub fn transform_image_tiff(thermal: &ThermalInput, args: &TransformArgs) -> Result<PathBuf> {
+    let (ht, wid) = thermal.image.image.dim();
     let mut image_buffer = {
         let vec = Vec::with_capacity(2 * ht * wid);
         let cursor = Cursor::new(vec);
         ByteOrdered::native(cursor)
     };
-    for (_, _, val) in image_to_u16_iterator(&thermal, args)? {
+    for (_, _, val) in image_to_u16_iterator(&thermal.image, args)? {
         image_buffer.write_u16(val)?;
     }
 
-    let output_path = args.output_stem_for(path).with_extension("tif");
+    let output_path = args.output_stem_for(&thermal.filename).with_extension("tif");
     let image_writer = BufWriter::new(File::create(&output_path)?);
     TiffEncoder::new(image_writer).encode(
         &image_buffer.into_inner().into_inner(),
@@ -102,7 +99,8 @@ pub fn transform_image_png(path: &Path, args: &TransformArgs) -> Result<PathBuf>
     Ok(outpath)
 }
 
-pub fn copy_exif_and_xmp(path: &Path, output_path: &Path) -> Result<()> {
+pub fn copy_exif_and_xmp<P: AsRef<Path>>(path: P, output_path: &Path) -> Result<()> {
+    let path = path.as_ref();
     ensure!(
         Command::new("sh")
             .arg("-c")

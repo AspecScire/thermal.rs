@@ -1,43 +1,35 @@
 mod args;
-mod stats;
 
 use anyhow::Result;
-
 use args::Args;
-use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
-use stats::ImageStats;
+use serde_derive::*;
+
+use thermal::cli::process_paths_par;
+use thermal::{image::ThermalImage, stats::Stats};
 
 fn main() -> Result<()> {
     let args = Args::from_cmd_line()?;
 
     use rayon::prelude::*;
-    use thermal::stats::Stats;
 
-    let bar = ProgressBar::new(args.paths.len() as u64);
-    bar.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {wide_bar:cyan/blue} {pos:>7}/{len:7}"),
-    );
+    let Args {
+        paths,
+        distance,
+        is_json,
+    } = args;
 
-    let distance = args.distance;
-    let (stats, cumulative) = args
-        .paths
-        .par_iter()
-        .progress_with(bar)
-        .map(|p| -> Result<_> {
-            if args.is_json {
-                ImageStats::from_exiftool_json_path(p, distance)
-            } else {
-                Ok(vec![ImageStats::from_image_path(p, distance)?])
-            }
+    let (stats, cumulative) = process_paths_par(paths, is_json)
+        .into_par_iter()
+        .map(|try_img| -> Result<_> {
+            let img = try_img?;
+            Ok(ImageStats::from_thermal_image(&img.image, distance, img.filename))
         })
         .try_fold(
             || (vec![], Stats::default()),
-            |mut acc, items| -> Result<_> {
-                for item in items? {
-                    acc.0.push(item);
-                    acc.1 += &acc.0.last().unwrap().stats;
-                }
+            |mut acc, try_img| -> Result<_> {
+                let item = try_img?;
+                acc.0.push(item);
+                acc.1 += &acc.0.last().unwrap().stats;
                 Ok(acc)
             },
         )
@@ -66,4 +58,34 @@ fn main() -> Result<()> {
     )?;
 
     Ok(())
+}
+
+#[derive(Serialize, Debug)]
+pub struct ImageStats {
+    path: String,
+    width: usize,
+    height: usize,
+    pub(crate) stats: Stats,
+}
+
+impl ImageStats {
+    pub fn from_thermal_image(thermal: &ThermalImage, distance: f64, path: String) -> Self {
+        let temp_t = thermal.settings.temperature_transform(distance);
+        let (ht, wid) = thermal.image.dim();
+
+        let mut stats = Stats::default();
+        for row in 0..ht {
+            for col in 0..wid {
+                let raw = thermal.image[(row, col)] as f64;
+                let temp = temp_t(raw);
+                stats += temp;
+            }
+        }
+        ImageStats {
+            width: wid,
+            height: ht,
+            path,
+            stats,
+        }
+    }
 }

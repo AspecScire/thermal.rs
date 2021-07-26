@@ -10,7 +10,6 @@ use serde_derive::*;
 
 use crate::flir::FlirCameraParams;
 
-
 /// Parameters to compute temperatures from raw sensor
 /// values.
 ///

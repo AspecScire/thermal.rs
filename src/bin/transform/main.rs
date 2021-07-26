@@ -2,7 +2,7 @@ mod args;
 mod proc;
 
 use anyhow::Result;
-use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
+use thermal::cli::process_paths_par;
 
 use crate::{
     args::Args,
@@ -11,24 +11,17 @@ use crate::{
 
 fn main() -> Result<()> {
     let args = Args::from_cmd_line()?;
-
-    let bar = ProgressBar::new(args.paths.len() as u64);
-    bar.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {wide_bar:cyan/blue} {pos:>7}/{len:7}"),
-    );
-
     let t_args = TransformArgs::from_args(&args);
+    let Args { paths, is_json, copy_exif, .. } = args;
 
     use rayon::prelude::*;
-    let count = args
-        .paths
-        .par_iter()
-        .progress_with(bar)
+    let count = process_paths_par(paths, is_json)
+        .into_par_iter()
         .map(|p| -> Result<()> {
-            let out_path = transform_image_tiff(p, &t_args)?;
-            if args.copy_exif {
-                copy_exif_and_xmp(p, &out_path)?;
+            let inp = p?;
+            let out_path = transform_image_tiff(&inp, &t_args)?;
+            if copy_exif {
+                copy_exif_and_xmp(&inp.filename, &out_path)?;
             }
             Ok(())
         })

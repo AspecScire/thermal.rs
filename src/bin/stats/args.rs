@@ -1,10 +1,9 @@
 use anyhow::Result;
 use clap::value_t_or_exit;
-use std::path::PathBuf;
 use thermal::{arg, args_parser, opt};
 
 pub struct Args {
-    pub paths: Vec<PathBuf>,
+    pub paths: Vec<String>,
     pub distance: f64,
     pub is_json: bool,
 }

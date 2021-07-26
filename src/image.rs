@@ -1,6 +1,6 @@
 //! Parse and extract raw thermal image and temperature
 //! params.
-use std::{convert::TryFrom, fs::read, io::Cursor, path::{Path, PathBuf}};
+use std::{convert::TryFrom, fs::read, io::Cursor, path::Path};
 
 use anyhow::{anyhow, bail, Result};
 use image::{ColorType, ImageDecoder};
@@ -9,7 +9,6 @@ use ndarray::Array2;
 use serde_derive::*;
 
 use crate::{flir::FlirSegment, temperature::ThermalSettings};
-
 
 /// Container for the raw sensor values, and the parameters
 /// of a single Flir image.
@@ -56,9 +55,6 @@ impl ThermalImage {
 /// raw image encoded as a base64 string.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ThermalExiftoolJson {
-    #[serde(rename = "SourceFile")]
-    pub source_file: PathBuf,
-
     #[serde(flatten)]
     pub settings: ThermalSettings,
 
