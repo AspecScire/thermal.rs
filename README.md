@@ -1,3 +1,6 @@
+[![Crates.io](https://img.shields.io/crates/v/thermal.svg)](https://crates.io/crates/thermal)
+[![Documentation](https://docs.rs/thermal/badge.svg)](https://docs.rs/thermal)
+
 Library and tools to process thermal images from FLIR
 cameras.
 
@@ -15,7 +18,7 @@ metadata. Supports parsing R-JPEGs with FFF encoding of Flir
 parameters, and parsing ExifTool generated JSON (output from
 `exiftool -b -j`).
 
-Please see crate documentation for more information
+Please see [crate documentation][docs] for more information
 
 # Tools
 
@@ -40,3 +43,4 @@ as above, without any additional terms or conditions.
 [read_thermal.py]: //github.com/Nervengift/read_thermal.py/blob/master/flir_image_extractor.py
 [Thermimage R library]: //github.com/gtatters/Thermimage/blob/master/R/raw2temp.R
 [ExifTool]: //exiftool.org
+[docs]: //docs.rs/thermal
