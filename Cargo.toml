@@ -1,6 +1,6 @@
 [package]
 name = "thermal"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Rajsekar Manokaran <rajsekar.manokaran@aspecscire.com>"]
 edition = "2018"
 
@@ -22,7 +22,6 @@ clap = "2.33.3"
 Inflector = "0.11.4"
 indicatif = { version = "0.16.2", features = ["rayon"] }
 itertools = "0.10.1"
-shlex = "1.0.0"
 
 # Parsing related
 serde = "1.0.126"

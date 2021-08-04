@@ -564,12 +564,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shlex"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42a568c8f2cd051a4d283bd6eb0343ac214c1b0f1ac19f93e1175b2dee38c73d"
-
-[[package]]
 name = "strsim"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -619,7 +613,7 @@ dependencies = [
 
 [[package]]
 name = "thermal"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "Inflector",
  "anyhow",
@@ -638,7 +632,6 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "shlex",
  "tiff",
  "zerocopy",
 ]
