@@ -12,7 +12,12 @@ use crate::{
 fn main() -> Result<()> {
     let args = Args::from_cmd_line()?;
     let t_args = TransformArgs::from_args(&args);
-    let Args { paths, is_json, copy_exif, .. } = args;
+    let Args {
+        paths,
+        is_json,
+        copy_exif,
+        ..
+    } = args;
 
     use rayon::prelude::*;
     let count = process_paths_par(paths, is_json)

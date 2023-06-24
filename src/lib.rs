@@ -78,8 +78,13 @@ pub(crate) mod flir;
 pub mod image;
 pub mod temperature;
 
-pub mod cli;
 pub mod stats;
 
 pub use crate::image::ThermalExiftoolJson;
 pub use crate::image::ThermalImage;
+
+#[cfg(feature = "dji")]
+pub mod dji;
+
+#[cfg(feature = "cli")]
+pub mod cli;

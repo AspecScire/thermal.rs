@@ -3,14 +3,14 @@ use anyhow::{ensure, Result};
 use byteordered::ByteOrdered;
 use image::tiff::TiffEncoder;
 use img_parts::jpeg::Jpeg;
-use itertools::iproduct;
+use itertools::{iproduct, Either};
 use std::{
     fs::{read, File},
-    io::{BufWriter, Cursor},
+    io::{BufWriter, Cursor, Seek, Write},
     path::{Path, PathBuf},
     process::Command,
 };
-use thermal::{cli::ThermalInput, image::ThermalImage};
+use thermal::{cli::ThermalInput, dji::RJpeg, image::ThermalImage};
 
 pub struct TransformArgs {
     pub distance: f64,
@@ -53,26 +53,58 @@ fn image_to_u16_iterator<'a>(
 }
 
 pub fn transform_image_tiff(thermal: &ThermalInput, args: &TransformArgs) -> Result<PathBuf> {
-    let (ht, wid) = thermal.image.image.dim();
+    let output_path = args
+        .output_stem_for(&thermal.filename)
+        .with_extension("tif");
+
+    let image_writer = BufWriter::new(File::create(&output_path)?);
+    match &thermal.image {
+        Either::Left(img) => transform_flir_tiff(img, args, image_writer),
+        Either::Right(img) => transform_dji_tiff(img, args, image_writer),
+    }?;
+
+    Ok(output_path)
+}
+
+pub fn transform_dji_tiff<W: Write + Seek>(
+    image: &RJpeg,
+    args: &TransformArgs,
+    sink: W,
+) -> Result<()> {
+    let values = image.temperatures()?;
+    let (ht, wid) = values.dim();
     let mut image_buffer = {
         let vec = Vec::with_capacity(2 * ht * wid);
         let cursor = Cursor::new(vec);
         ByteOrdered::native(cursor)
     };
-    for (_, _, val) in image_to_u16_iterator(&thermal.image, args)? {
+    for val in values.into_iter() {
+        image_buffer.write_u16(args.transform(val as f64)).unwrap();
+    }
+    let data = image_buffer.into_inner().into_inner();
+    TiffEncoder::new(sink).encode(&data, wid as u32, ht as u32, image::ColorType::L16)?;
+    Ok(())
+}
+
+pub fn transform_flir_tiff<W: Write + Seek>(
+    image: &ThermalImage,
+    args: &TransformArgs,
+    sink: W,
+) -> Result<()> {
+    let (ht, wid) = image.image.dim();
+    let mut image_buffer = {
+        let vec = Vec::with_capacity(2 * ht * wid);
+        let cursor = Cursor::new(vec);
+        ByteOrdered::native(cursor)
+    };
+    for (_, _, val) in image_to_u16_iterator(image, args)? {
         image_buffer.write_u16(val)?;
     }
 
-    let output_path = args.output_stem_for(&thermal.filename).with_extension("tif");
-    let image_writer = BufWriter::new(File::create(&output_path)?);
-    TiffEncoder::new(image_writer).encode(
-        &image_buffer.into_inner().into_inner(),
-        wid as u32,
-        ht as u32,
-        image::ColorType::L16,
-    )?;
+    let data = image_buffer.into_inner().into_inner();
+    TiffEncoder::new(sink).encode(&data, wid as u32, ht as u32, image::ColorType::L16)?;
 
-    Ok(output_path)
+    Ok(())
 }
 
 #[allow(dead_code)]

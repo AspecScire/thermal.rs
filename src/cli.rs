@@ -8,15 +8,19 @@ use std::{
     convert::{TryFrom, TryInto},
     fs::File,
     io::{BufReader, Read},
+    path::Path,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Error, Result};
 pub use clap::{App, Arg};
 use indicatif::{ProgressBar, ProgressStyle};
 pub use inflector::Inflector;
 use rayon::iter::{once, Either, IntoParallelIterator, ParallelIterator};
 use serde_derive::*;
 use serde_json::Deserializer;
+
+#[cfg(feature = "dji")]
+use crate::dji::RJpeg;
 
 use crate::{ThermalExiftoolJson, ThermalImage};
 
@@ -47,27 +51,31 @@ macro_rules! opt {
     }};
 }
 
+pub type GenericImage = Either<ThermalImage, RJpeg>;
 pub struct ThermalInput {
     pub filename: String,
-    pub image: ThermalImage,
+    pub image: GenericImage,
 }
 
 #[allow(dead_code)]
 impl ThermalInput {
     fn try_from_image_path(filename: String) -> Result<Self> {
-        let image = ThermalImage::try_from_rjpeg_path(&filename)?;
+        let image = ThermalImage::try_from_rjpeg_path(&filename)
+            .map(Either::Left)
+            .or_else::<Error, _>(|_| Ok(Either::Right(RJpeg::try_from_path(Path::new(&filename))?)))
+            .context("could not parse thermal image: tried FLIR, DJI")?;
         Ok(ThermalInput { filename, image })
     }
     fn try_from_exiftool_json<R: Read>(rdr: R) -> Result<Vec<Result<Self>>> {
         Ok(serde_json::from_reader::<R, Vec<JsonFormat>>(rdr)?
             .into_iter()
-            .map(|j| Ok(j.try_into()?))
+            .map(|j| j.try_into())
             .collect())
     }
     fn stream_from_exiftool_json<R: Read>(rdr: R) -> impl Iterator<Item = Result<Self>> {
         Deserializer::from_reader(rdr)
             .into_iter::<JsonFormat>()
-            .map(|j| -> Result<_> { Ok(j?.try_into()?) })
+            .map(|j| -> Result<_> { j?.try_into() })
     }
 }
 
@@ -85,7 +93,7 @@ impl TryFrom<JsonFormat> for ThermalInput {
     fn try_from(j: JsonFormat) -> Result<Self> {
         Ok(Self {
             filename: j.filename,
-            image: j.image.try_into()?,
+            image: Either::Left(j.image.try_into()?),
         })
     }
 }
@@ -115,7 +123,7 @@ pub fn process_paths_par(
                         }
                         Either::Left(vec.into_par_iter())
                     }
-                    Err(e) => Either::Right(once(Err(e.into()))),
+                    Err(e) => Either::Right(once(Err(e))),
                 }
             } else {
                 Either::Right(once(ThermalInput::try_from_image_path(p)))

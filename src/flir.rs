@@ -89,7 +89,7 @@ impl FlirSegment {
         // check that version is in [100, 200).
         let endianness = {
             let end = Endianness::native();
-            if version >= 100 && version < 200 {
+            if (100..200).contains(&version) {
                 end
             } else {
                 end.to_opposite()
@@ -159,7 +159,7 @@ fn collect_flir_segment_data_from_jpeg(image: &Jpeg) -> Result<Vec<u8>> {
 
         let curr_seg = &mut flir_segments[current_segment as usize];
         ensure!(
-            curr_seg.len() == 0,
+            curr_seg.is_empty(),
             "duplicate FLIR segment: idx = {}",
             current_segment
         );

@@ -2,9 +2,11 @@ mod args;
 
 use anyhow::Result;
 use args::Args;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde_derive::*;
 
-use thermal::cli::process_paths_par;
+use thermal::cli::{process_paths_par, GenericImage};
+use thermal::dji::RJpeg;
 use thermal::{image::ThermalImage, stats::Stats};
 
 fn main() -> Result<()> {
@@ -22,7 +24,11 @@ fn main() -> Result<()> {
         .into_par_iter()
         .map(|try_img| -> Result<_> {
             let img = try_img?;
-            Ok(ImageStats::from_thermal_image(&img.image, distance, img.filename))
+            Ok(ImageStats::from_thermal_image(
+                &img.image,
+                distance,
+                img.filename,
+            ))
         })
         .try_fold(
             || (vec![], Stats::default()),
@@ -69,7 +75,37 @@ pub struct ImageStats {
 }
 
 impl ImageStats {
-    pub fn from_thermal_image(thermal: &ThermalImage, distance: f64, path: String) -> Self {
+    pub fn from_thermal_image(thermal: &GenericImage, distance: f64, path: String) -> Self {
+        use itertools::Either;
+        match thermal {
+            Either::Left(ti) => Self::from_flir_image(ti, distance, path),
+            Either::Right(dji) => Self::from_dji_image(dji, distance, path),
+        }
+    }
+
+    pub fn from_dji_image(rjpeg: &RJpeg, _distance: f64, path: String) -> Self {
+        let values = rjpeg.temperatures().unwrap();
+        let (ht, wid) = values.dim();
+        let stats = values
+            .into_par_iter()
+            .fold(Stats::default, |mut acc, val| {
+                acc += *val as f64;
+                acc
+            })
+            .reduce(Stats::default, |mut acc, val| {
+                acc += &val;
+                acc
+            });
+
+        ImageStats {
+            width: wid,
+            height: ht,
+            path,
+            stats,
+        }
+    }
+
+    pub fn from_flir_image(thermal: &ThermalImage, distance: f64, path: String) -> Self {
         let temp_t = thermal.settings.temperature_transform(distance);
         let (ht, wid) = thermal.image.dim();
 

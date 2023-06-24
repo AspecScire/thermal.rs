@@ -20,7 +20,7 @@ impl ThermalImage {
     /// Parse a `ThermalImage` from
     /// [`Jpeg`][`img_parts::jpeg::Jpeg`].
     pub fn try_from_rjpeg(image: &Jpeg) -> Result<Self> {
-        let flir_segment = FlirSegment::try_from_jpeg(&image)?;
+        let flir_segment = FlirSegment::try_from_jpeg(image)?;
         let image = flir_segment
             .try_parse_raw_data()?
             .ok_or_else(|| anyhow!("no raw data found"))?;
